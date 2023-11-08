@@ -1,9 +1,9 @@
 /*
-
-
+This example code is modified from  Heltec Lora Basic sample code
+It could run device as Rx or Tx by define DEVICE_AS_RX or not define
 */
 
-// #define DEVICE_AS_RX // set device as RX device , or TX device
+#define DEVICE_AS_RX // set device as RX device , or TX device
 
 #include "sct62_bsp.h"
 #include "Wire.h"
