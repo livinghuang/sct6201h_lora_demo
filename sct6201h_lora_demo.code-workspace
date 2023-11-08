@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../../../../AppData/Local/Arduino15/packages/Heltec-esp32/hardware/esp32"
+		},
+		{
+			"path": "../../sct6201h_lorawan_demo"
+		}
+	],
+	"settings": {}
+}

@@ -1,8 +1,52 @@
+/*
+
+
+*/
+
+// #define DEVICE_AS_RX // set device as RX device , or TX device
+
 #include "sct62_bsp.h"
 #include "Wire.h"
 #include "BMP280.h"
 #include "HDC1080.h"
 #include "LoRaWan_APP.h"
+#include "Arduino.h"
+
+#define RF_FREQUENCY 915000000 // Hz
+
+#define TX_OUTPUT_POWER 22 // dBm
+
+#define LORA_BANDWIDTH 0        // [0: 125 kHz,
+                                //  1: 250 kHz,
+                                //  2: 500 kHz,
+                                //  3: Reserved]
+#define LORA_SPREADING_FACTOR 8 // [SF7..SF12]
+#define LORA_CODINGRATE 1       // [1: 4/5,
+                                //  2: 4/6,
+                                //  3: 4/7,
+                                //  4: 4/8]
+#define LORA_PREAMBLE_LENGTH 8  // Same for Tx and Rx
+#define LORA_SYMBOL_TIMEOUT 0   // Symbols
+#define LORA_FIX_LENGTH_PAYLOAD_ON false
+#define LORA_IQ_INVERSION_ON false
+
+#define RX_TIMEOUT_VALUE 1000
+#define BUFFER_SIZE 256 // Define the payload size here
+
+uint64_t Sleep_uSec = 60 * 1000000; // unit : uSec
+
+char txpacket[BUFFER_SIZE];
+char rxpacket[BUFFER_SIZE];
+
+double txNumber;
+
+bool lora_idle = true;
+
+static RadioEvents_t RadioEvents;
+void OnTxDone(void);
+void OnTxTimeout(void);
+
+RTC_DATA_ATTR int bootCount = 0;
 BMP280 bmp;
 HDC1080 hdc1080;
 float getBatVolt();
@@ -21,7 +65,6 @@ struct bmp280_data
 
 bool hdc1080_fetch(void)
 {
-
   if (!hdc1080.begin())
   {
     return 0;
@@ -94,10 +137,8 @@ void power_On_Sensor_Bus()
   pinMode(pSCL, OUTPUT);
   digitalWrite(pSDA, HIGH);
   digitalWrite(pSCL, HIGH);
-  // Serial.println("I2C ON");
   delay(15);
   digitalWrite(pVext, LOW);
-  // Serial.println("Vext ON");
 }
 
 void power_Off_Sensor_Bus()
@@ -108,71 +149,14 @@ void power_Off_Sensor_Bus()
   pinMode(pSCL, OUTPUT);
   digitalWrite(pSDA, LOW);
   digitalWrite(pSCL, LOW);
-  // Serial.println("I2C OFF");
   delay(15);
   digitalWrite(pVext, HIGH);
-  // Serial.println("Vext OFF");
 }
-
-/* OTAA para*/
-uint8_t devEui[] = {0x22, 0x32, 0x33, 0x00, 0x00, 0x88, 0x88, 0x08};
-uint8_t appEui[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-uint8_t appKey[] = {0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88};
-
-/* ABP para*/
-uint8_t nwkSKey[] = {0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88};
-uint8_t appSKey[] = {0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88};
-uint32_t devAddr = (uint32_t)0x88888888;
-
-/*LoraWan channelsmask, default channels 0-7*/
-uint16_t userChannelsMask[6] = {0x00FF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000};
-
-/*LoraWan region, select in arduino IDE tools*/
-LoRaMacRegion_t loraWanRegion = LORAMAC_REGION_AS923_AS2;
-
-/*LoraWan Class, Class A and Class C are supported*/
-DeviceClass_t loraWanClass = CLASS_A;
-
-/*the application data transmission duty cycle.  value in [ms].*/
-uint32_t appTxDutyCycle = 120000;
-
-/*OTAA or ABP*/
-bool overTheAirActivation = false;
-
-/*ADR enable*/
-bool loraWanAdr = true;
-
-/* Indicates if the node is sending confirmed or unconfirmed messages */
-bool isTxConfirmed = true;
-
-/* Application port */
-uint8_t appPort = 2;
-/*!
- * Number of trials to transmit the frame, if the LoRaMAC layer did not
- * receive an acknowledgment. The MAC performs a datarate adaptation,
- * according to the LoRaWAN Specification V1.0.2, chapter 18.4, according
- * to the following table:
- *
- * Transmission nb | Data Rate
- * ----------------|-----------
- * 1 (first)       | DR
- * 2               | DR
- * 3               | max(DR-1,0)
- * 4               | max(DR-1,0)
- * 5               | max(DR-2,0)
- * 6               | max(DR-2,0)
- * 7               | max(DR-3,0)
- * 8               | max(DR-3,0)
- *
- * Note, that if NbTrials is set to 1 or 2, the MAC will not decrease
- * the datarate, in case the LoRaMAC layer did not receive an acknowledgment
- */
-uint8_t confirmedNbTrials = 4;
 
 void fetchSensorData()
 {
   int i;
-  for (i = 0; i < 5; i++)
+  for (i = 0; i < 3; i++)
   {
     power_On_Sensor_Bus();
     delay(15);
@@ -182,7 +166,7 @@ void fetchSensorData()
     delay(15);
   }
 
-  for (i = 0; i < 5; i++)
+  for (i = 0; i < 3; i++)
   {
     power_On_Sensor_Bus();
     delay(10);
@@ -190,94 +174,6 @@ void fetchSensorData()
     // delay(10);
     power_Off_Sensor_Bus();
     delay(5);
-  }
-}
-
-// Prepares the payload of the frame
-static void prepareTxFrame(uint8_t port)
-{
-  bool rst = 0;
-  appDataSize = sizeof(hdc1080_data) + sizeof(bmp280_data) + 1;
-
-  fetchSensorData();
-  Serial.println("Fetch data Done");
-  Serial.printf("T=%.2f degC, Pressure=%.2f hPa\n", bmp280_result.bmp280_internal_temperature, bmp280_result.pressure);
-  Serial.printf("T=%.2f degC, Humidity=%.2f %\n", hdc1080_result.temperature, hdc1080_result.humidity);
-  // Set the first element of appData as the battery level
-  appData[0] = GetBatteryLevel();
-
-  // // Copy hdc1080 data to appData starting from the second element
-  memcpy(&appData[1], &hdc1080_result, sizeof(hdc1080_data));
-
-  // // Copy bmp280 data to appData after hdc1080 data
-  memcpy(&appData[sizeof(hdc1080_data) + 1], &bmp280_result, sizeof(bmp280_data));
-
-  // // Calculate the size of appData
-  // Serial.print("appDataSize:");
-  // Serial.println(appDataSize);
-  // // Uncomment the code below to print the values in appData
-  // for (int i = 0; i < appDataSize; i++)
-  // {
-  //   Serial.print("Byte ");
-  //   Serial.print(i);
-  //   Serial.print(": 0x");
-  //   Serial.println(appData[i], HEX);
-  // }
-  Serial.flush();
-}
-
-// if true, next uplink will add MOTE_MAC_DEVICE_TIME_REQ
-
-void setup()
-{
-  Serial.begin(115200);
-  Mcu.begin();
-
-  deviceState = DEVICE_STATE_INIT;
-}
-
-void loop()
-{
-  switch (deviceState)
-  {
-  case DEVICE_STATE_INIT:
-  {
-#if (LORAWAN_DEVEUI_AUTO)
-    LoRaWAN.generateDeveuiByChipID();
-#endif
-    LoRaWAN.init(loraWanClass, loraWanRegion);
-    break;
-  }
-  case DEVICE_STATE_JOIN:
-  {
-    LoRaWAN.join();
-    break;
-  }
-  case DEVICE_STATE_SEND:
-  {
-    prepareTxFrame(appPort);
-    LoRaWAN.send();
-    deviceState = DEVICE_STATE_CYCLE;
-    break;
-  }
-  case DEVICE_STATE_CYCLE:
-  {
-    // Schedule next packet transmission
-    txDutyCycleTime = appTxDutyCycle + randr(-APP_TX_DUTYCYCLE_RND, APP_TX_DUTYCYCLE_RND);
-    LoRaWAN.cycle(txDutyCycleTime);
-    deviceState = DEVICE_STATE_SLEEP;
-    break;
-  }
-  case DEVICE_STATE_SLEEP:
-  {
-    LoRaWAN.sleep(loraWanClass);
-    break;
-  }
-  default:
-  {
-    deviceState = DEVICE_STATE_INIT;
-    break;
-  }
   }
 }
 
@@ -317,4 +213,214 @@ uint8_t GetBatteryLevel(void)
   Serial.print(batLevel);
   Serial.println("}");
   return batLevel;
+}
+
+/*
+Method to print the reason by which ESP32
+has been awaken from sleep
+*/
+void print_wakeup_reason()
+{
+  esp_sleep_wakeup_cause_t wakeup_reason;
+
+  wakeup_reason = esp_sleep_get_wakeup_cause();
+
+  switch (wakeup_reason)
+  {
+  case ESP_SLEEP_WAKEUP_EXT0:
+    Serial.println("Wakeup caused by external signal using RTC_IO");
+    break;
+  case ESP_SLEEP_WAKEUP_EXT1:
+    Serial.println("Wakeup caused by external signal using RTC_CNTL");
+    break;
+  case ESP_SLEEP_WAKEUP_TIMER:
+    Serial.println("Wakeup caused by timer");
+    break;
+  case ESP_SLEEP_WAKEUP_TOUCHPAD:
+    Serial.println("Wakeup caused by touchpad");
+    break;
+  case ESP_SLEEP_WAKEUP_ULP:
+    Serial.println("Wakeup caused by ULP program");
+    break;
+  default:
+    Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason);
+    break;
+  }
+}
+
+static void prepareTxFrame(uint8_t port)
+{
+  bool rst = 0;
+  appDataSize = sizeof(hdc1080_data) + sizeof(bmp280_data) + 1;
+
+  fetchSensorData();
+  Serial.println("Fetch data Done");
+  Serial.printf("T=%.2f degC, Pressure=%.2f hPa\n", bmp280_result.bmp280_internal_temperature, bmp280_result.pressure);
+  Serial.printf("T=%.2f degC, Humidity=%.2f %\n", hdc1080_result.temperature, hdc1080_result.humidity);
+  // Set the first element of appData as the battery level
+  appData[0] = GetBatteryLevel();
+
+  // // Copy hdc1080 data to appData starting from the second element
+  memcpy(&appData[1], &hdc1080_result, sizeof(hdc1080_data));
+
+  // // Copy bmp280 data to appData after hdc1080 data
+  memcpy(&appData[sizeof(hdc1080_data) + 1], &bmp280_result, sizeof(bmp280_data));
+
+  // // Calculate the size of appData
+  // Serial.print("appDataSize:");
+  // Serial.println(appDataSize);
+  // // Uncomment the code below to print the values in appData
+  // for (int i = 0; i < appDataSize; i++)
+  // {
+  //   Serial.print("Byte ");
+  //   Serial.print(i);
+  //   Serial.print(": 0x");
+  //   Serial.println(appData[i], HEX);
+  // }
+  Serial.flush();
+}
+
+void Tx_setup()
+{
+  Serial.begin(115200);
+  Mcu.begin();
+  print_wakeup_reason();
+  txNumber = 0;
+
+  RadioEvents.TxDone = OnTxDone;
+  RadioEvents.TxTimeout = OnTxTimeout;
+
+  Radio.Init(&RadioEvents);
+  Radio.SetChannel(RF_FREQUENCY);
+  Radio.SetTxConfig(MODEM_LORA, TX_OUTPUT_POWER, 0, LORA_BANDWIDTH,
+                    LORA_SPREADING_FACTOR, LORA_CODINGRATE,
+                    LORA_PREAMBLE_LENGTH, LORA_FIX_LENGTH_PAYLOAD_ON,
+                    true, 0, 0, LORA_IQ_INVERSION_ON, 3000);
+  // set sleep mode
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
+  Sleep_uSec += randr(-APP_TX_DUTYCYCLE_RND, APP_TX_DUTYCYCLE_RND);
+  // setting wakeup time
+  esp_sleep_enable_timer_wakeup(Sleep_uSec); // uSecond
+
+  bootCount++;
+  Serial.printf("this is boot number %d\n", bootCount);
+}
+
+void Tx_loop()
+{
+  if (lora_idle == true)
+  {
+    prepareTxFrame(0);
+    Radio.Send((uint8_t *)appData, appDataSize); // send the package out
+    lora_idle = false;
+  }
+  Radio.IrqProcess();
+}
+
+void OnTxDone(void)
+{
+  Serial.println("TX done......");
+  lora_idle = true;
+  Radio.Sleep();
+  // enter deep sleep
+  esp_deep_sleep_start();
+}
+
+void OnTxTimeout(void)
+{
+  Radio.Sleep();
+  Serial.println("TX Timeout......");
+  lora_idle = true;
+}
+int16_t rssi, rxSize;
+void Rx_setup()
+{
+  Serial.begin(115200);
+  Mcu.begin();
+
+  txNumber = 0;
+  rssi = 0;
+
+  RadioEvents.RxDone = OnRxDone;
+  Radio.Init(&RadioEvents);
+  Radio.SetChannel(RF_FREQUENCY);
+  Radio.SetRxConfig(MODEM_LORA, LORA_BANDWIDTH, LORA_SPREADING_FACTOR,
+                    LORA_CODINGRATE, 0, LORA_PREAMBLE_LENGTH,
+                    LORA_SYMBOL_TIMEOUT, LORA_FIX_LENGTH_PAYLOAD_ON,
+                    0, true, 0, 0, LORA_IQ_INVERSION_ON, true);
+}
+
+void Rx_loop()
+{
+  if (lora_idle)
+  {
+    lora_idle = false;
+    Serial.println("into RX mode");
+    Radio.Rx(0);
+  }
+  Radio.IrqProcess();
+}
+void convertPacket();
+void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
+{
+  rssi = rssi;
+  rxSize = size;
+  memcpy(rxpacket, payload, size);
+  rxpacket[size] = '\0';
+  Radio.Sleep();
+  convertPacket();
+  Serial.printf("\r\nreceived packet \"%s\" with rssi %d , length %d\r\n", rxpacket, rssi, rxSize);
+  lora_idle = true;
+}
+
+void convertPacket()
+{
+  // Uncomment the code below to print the values in rxpacket
+  for (int i = 0; i < rxSize; i++)
+  {
+    Serial.print("Byte ");
+    Serial.print(i);
+    Serial.print(": 0x");
+    Serial.println(rxpacket[i], HEX);
+  }
+
+  // convert battery level
+  uint8_t batLevel = rxpacket[0];
+  Serial.print("battery level:");
+  Serial.println(batLevel);
+  // convert hdc1080 temperature
+  float temperature = *(float *)(rxpacket + 1);
+  Serial.print("HDC1080 temperature:");
+  Serial.println(temperature);
+  // convert hdc1080 humidity
+  float humidity = *(float *)(rxpacket + 5);
+  Serial.print("HDC1080 humidity:");
+  Serial.println(humidity);
+  Serial.println(" p.s. if HDC1080 humidity is going to 0 suddenly, pls use hdc1080 internal heater function to reduce the effects of condensation on the sensor's surface.");
+  // convert bmp280 temperature
+  float bmpTemperature = *(float *)(rxpacket + 9);
+  Serial.print("bmp280 internal temperature:");
+  Serial.println(bmpTemperature);
+  Serial.println(" p.s. bmp280 internal temperature should be higher than ambient temperature");
+  // convert bmp280 pressure
+  float bmpPressure = *(float *)(rxpacket + 13);
+  Serial.print("bmp pressure:");
+  Serial.println(bmpPressure);
+}
+
+void setup()
+{
+#ifdef DEVICE_AS_RX
+  Rx_setup();
+#else
+  Tx_setup();
+#endif
+}
+void loop()
+{
+#ifdef DEVICE_AS_RX
+  Rx_loop();
+#else
+  Tx_loop();
+#endif
 }
