@@ -3,7 +3,7 @@ This example code is modified from  Heltec Lora Basic sample code
 It could run device as Rx or Tx by define DEVICE_AS_RX or not define
 */
 
-#define DEVICE_AS_RX // set device as RX device , or TX device
+// #define DEVICE_AS_RX // set device as RX device , or TX device
 
 #include "sct62_bsp.h"
 #include "Wire.h"
@@ -12,28 +12,28 @@ It could run device as Rx or Tx by define DEVICE_AS_RX or not define
 #include "LoRaWan_APP.h"
 #include "Arduino.h"
 
-#define RF_FREQUENCY 915000000 // Hz
+#define RF_FREQUENCY 923000000 // Hz
 
 #define TX_OUTPUT_POWER 22 // dBm
 
-#define LORA_BANDWIDTH 0        // [0: 125 kHz,
-                                //  1: 250 kHz,
-                                //  2: 500 kHz,
-                                //  3: Reserved]
-#define LORA_SPREADING_FACTOR 8 // [SF7..SF12]
-#define LORA_CODINGRATE 1       // [1: 4/5,
-                                //  2: 4/6,
-                                //  3: 4/7,
-                                //  4: 4/8]
-#define LORA_PREAMBLE_LENGTH 8  // Same for Tx and Rx
-#define LORA_SYMBOL_TIMEOUT 0   // Symbols
+#define LORA_BANDWIDTH 0         // [0: 125 kHz,
+                                 //  1: 250 kHz,
+                                 //  2: 500 kHz,
+                                 //  3: Reserved]
+#define LORA_SPREADING_FACTOR 11 // [SF7..SF12]
+#define LORA_CODINGRATE 1        // [1: 4/5,
+                                 //  2: 4/6,
+                                 //  3: 4/7,
+                                 //  4: 4/8]
+#define LORA_PREAMBLE_LENGTH 8   // Same for Tx and Rx
+#define LORA_SYMBOL_TIMEOUT 0    // Symbols
 #define LORA_FIX_LENGTH_PAYLOAD_ON false
 #define LORA_IQ_INVERSION_ON false
 
 #define RX_TIMEOUT_VALUE 1000
 #define BUFFER_SIZE 256 // Define the payload size here
 
-uint64_t Sleep_uSec = 60 * 1000000; // unit : uSec
+uint64_t Sleep_uSec = 15 * 1000000; // unit : uSec
 
 char txpacket[BUFFER_SIZE];
 char rxpacket[BUFFER_SIZE];
@@ -155,42 +155,31 @@ void power_Off_Sensor_Bus()
 
 void fetchSensorData()
 {
-  int i;
-  for (i = 0; i < 3; i++)
-  {
-    power_On_Sensor_Bus();
-    delay(15);
-    hdc1080_fetch();
-    delay(10);
-    power_Off_Sensor_Bus();
-    delay(15);
-  }
-
-  for (i = 0; i < 3; i++)
-  {
-    power_On_Sensor_Bus();
-    delay(10);
-    bmp280_fetch();
-    // delay(10);
-    power_Off_Sensor_Bus();
-    delay(5);
-  }
+  power_On_Sensor_Bus();
+  delay(10);
+  bmp280_fetch();
+  hdc1080_fetch();
+  power_Off_Sensor_Bus();
 }
 
 float getBatVolt()
 {
   uint32_t sum = 0;
-  uint32_t test_min = 695;
-  uint32_t test_max = 1030;
+  uint32_t test_min = 946;
+  uint32_t test_max = 1231;
+  sum = analogReadMilliVolts(2);
   for (size_t i = 0; i < 16; i++)
   {
-    sum += analogRead(2);
+    sum += analogReadMilliVolts(2);
+    sum = sum / 2;
     delay(10);
   }
-  float avg = (float)(sum >> 4) / 4095 * 2400;
-  Serial.print("avg");
+
+  float avg = ((sum - test_min) * (4200 - 3300) / (test_max - test_min) + 3300);
+  avg = avg / 1000;
+  Serial.print("avg:");
   Serial.println(avg);
-  return ((avg - test_min) * (4.2 - 3) / (test_max - test_min) + 3);
+  return avg;
 }
 
 uint8_t GetBatteryLevel(void)
@@ -200,11 +189,11 @@ uint8_t GetBatteryLevel(void)
   const float batVolt = getBatVolt();
   const float batVoltage = fmax(minBattery, fmin(maxBattery, batVolt));
   uint8_t batLevel = BAT_LEVEL_EMPTY + ((batVoltage - minBattery) / (maxBattery - minBattery)) * (BAT_LEVEL_FULL - BAT_LEVEL_EMPTY);
-  if (batVolt > 4.2)
+  if (batVolt > maxBattery)
   {
     batLevel = 255;
   }
-  if (batVolt < 3.01)
+  if (batVolt < minBattery)
   {
     batLevel = 0;
   }
@@ -253,7 +242,6 @@ static void prepareTxFrame(uint8_t port)
   bool rst = 0;
   appDataSize = sizeof(hdc1080_data) + sizeof(bmp280_data) + 1;
 
-  fetchSensorData();
   Serial.println("Fetch data Done");
   Serial.printf("T=%.2f degC, Pressure=%.2f hPa\n", bmp280_result.bmp280_internal_temperature, bmp280_result.pressure);
   Serial.printf("T=%.2f degC, Humidity=%.2f %\n", hdc1080_result.temperature, hdc1080_result.humidity);
@@ -413,6 +401,7 @@ void setup()
 #ifdef DEVICE_AS_RX
   Rx_setup();
 #else
+  fetchSensorData();
   Tx_setup();
 #endif
 }

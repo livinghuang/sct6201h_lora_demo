@@ -27,12 +27,11 @@
 bool BMP280::begin()
 {
 	Wire.begin(pSDA, pSCL);
-	delay(20);
+	delay(10);
 	if (read8(BMP280_REGISTER_CHIPID) != BMP280_CHIPID)
 		return false;
 
 	readCoefficients();
-	delay(100);
 	return true;
 }
 

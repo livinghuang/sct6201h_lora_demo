@@ -45,7 +45,7 @@ bool HDC1080::begin()
 	else
 	{
 		setResolution(HDC1080_RESOLUTION_14BIT, HDC1080_RESOLUTION_14BIT);
-		delay(50);
+		delay(20);
 		return true;
 	}
 }
@@ -178,8 +178,8 @@ uint16_t readHDC1080Status()
 	uint16_t status = 0;
 
 	Wire.beginTransmission(HDC1080_ADDRESS); // Start communication with HDC1080
-	Wire.write((uint8_t)0x00);				 // Select the status register
-	Wire.endTransmission(false);			 // Restart communication
+	Wire.write((uint8_t)0x00);							 // Select the status register
+	Wire.endTransmission(false);						 // Restart communication
 
 	Wire.requestFrom(HDC1080_ADDRESS, 2); // Request 2 bytes of data from HDC1080
 	if (Wire.available() >= 2)

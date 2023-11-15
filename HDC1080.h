@@ -89,7 +89,7 @@ public:
 	bool begin();
 	void end();
 	uint16_t readManufacturerId(); // 0x5449 ID of Texas Instruments
-	uint16_t readDeviceId();	   // 0x1050 ID of the device
+	uint16_t readDeviceId();			 // 0x1050 ID of the device
 
 	HDC1080_Registers readRegister();
 	void writeRegister(HDC1080_Registers reg);
